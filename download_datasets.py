@@ -5,6 +5,7 @@ import os
 import shutil
 from investiny import historical_data
 
+
 ALPHA_VANTAGE_API_KEY = "sjlkfasjfsouut"
 START_DATE="2010-01-01"
 END_DATE="2020-12-31"
@@ -59,13 +60,27 @@ def reset(base_dir="datasets"):
 
     return train_path, test_path
 
-import os
-import yfinance as yf
 
-def download_with_yfinance(ticker, name, base_dir="datasets"):
+
+def download_with_yfinance(ticker, name, base_dir="datasets", fx_ticker=None):
     """
-    Download data from Yahoo Finance, split into training (2010-2017)
-    and testing (2018-2020), and save to CSVs.
+    Download data from Yahoo Finance, optionally convert to USD,
+    split into training (2010-2017) and testing (2018-2020), and save to CSVs.
+
+    Parameters
+    ----------
+    ticker : str
+        The Yahoo Finance ticker for the index/asset.
+    name : str
+        The name to use for saving CSVs.
+    base_dir : str
+        Directory where training/testing_data subfolders exist.
+    fx_ticker : str or None
+        Yahoo Finance FX ticker (quoted as USD per 1 unit of local currency).
+        Examples:
+            - "GBPUSD=X" for FTSE
+            - "JPYUSD=X" for Nikkei
+            - None for USD-denominated assets (S&P, EEM, Gold, TNX)
     """
     try:
         # 1. Download full dataset
@@ -85,24 +100,42 @@ def download_with_yfinance(ticker, name, base_dir="datasets"):
         ref_index = get_us_calendar()
         aligned = series.reindex(ref_index).ffill()
 
-        # 4) drop any leading NaNs (before the asset’s first real price)
+        # 4) FX conversion (if fx_ticker provided)
+        if fx_ticker:
+            fx_df = yf.download(fx_ticker, start=START_DATE, end=END_DATE,
+                                auto_adjust=True, progress=False)
+            if fx_df.empty:
+                print(f"❌ FX download failed for {fx_ticker}; skipping conversion for {name}.")
+                return
+
+            fx_df.index = pd.to_datetime(fx_df.index).tz_localize(None)
+            fx_series = (fx_df["Close"]
+                         if not isinstance(fx_df.columns, pd.MultiIndex)
+                         else fx_df["Close"].iloc[:, 0]).copy()
+            fx_aligned = fx_series.reindex(ref_index).ffill()
+
+            print(fx_aligned.head())
+
+            aligned = aligned * fx_aligned  # Convert local index to USD        
+
+        # 5) drop any leading NaNs (before the asset’s first real price)
         first_valid = aligned.first_valid_index()
         if first_valid is None:
             print(f"⚠️ {ticker} ({name}) has no valid data after alignment.")
             return
         aligned = aligned.loc[first_valid:]
 
-        # 5) rebuild minimal DataFrame to save
+        # 6) rebuild minimal DataFrame to save
         out = aligned.to_frame(name="Close")
 
 
 
 
-        # 6) split into train/test
+        # 7) split into train/test
         train_df = out.loc[START_DATE:TRAINING_END_DATE]
         test_df  = out.loc[TESTING_START_DATE:END_DATE]
 
-        # 3. Save to CSV
+        # 8) Save to CSV
         train_path = os.path.join(base_dir, "training_data", f"{name}.csv")
         test_path = os.path.join(base_dir, "testing_data", f"{name}.csv")
 
@@ -190,11 +223,11 @@ def main():
 
     #2. Download FTSE 100 Index (^FTSC)
     ftse_ticker = "^FTSC"
-    download_with_yfinance(ftse_ticker,"ftse_100")    
+    download_with_yfinance(ftse_ticker,"ftse_100", fx_ticker="GBPUSD=X")    
 
     #3. Download Nikkei 225 Index (^N225)
     n225_ticker = "^N225"
-    download_with_yfinance(n225_ticker,"n_225")    
+    download_with_yfinance(n225_ticker,"n_225", fx_ticker="JPYUSD=X")    
 
     #4. Download MSCI Emerging Markets ETF (^EEM)
     eem_ticker = "EEM"
