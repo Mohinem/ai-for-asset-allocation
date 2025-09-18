@@ -2,3 +2,4 @@ datasets
 processed
 runs
 data/__pycache__
+scripts/__pycache__
