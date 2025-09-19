@@ -28,7 +28,7 @@ def train(args):
     optim = Adam(model.parameters(), lr=1e-3)     # paper: Adam 1e-3
 
     train_ld, val_ld, test_ld = make_loaders(Xtr, ytr, Xva, yva, Xte, yte, batch_size=32)
-    stopper = EarlyStopper(patience=10)
+    stopper = EarlyStopper(patience=1000)
     best_val = float("inf")
 
     for epoch in range(1, args.epochs + 1):
@@ -57,7 +57,7 @@ def train(args):
 
     model.load_state_dict(torch.load(os.path.join(args.out, "lstm_best.pt"), map_location=device))
     test_metrics = evaluate(model, test_ld, device)
-    print(f"[TEST] mse={test_metrics['mse']:.6f} | mae={test_metrics['mae']:.6f} | dir_acc={test_metrics['dir_acc']:.4f}")
+    print(f"[TEST] rmse={test_metrics['rmse']:.6f} | mse={test_metrics['mse']:.6f} | mae={test_metrics['mae']:.6f} | dir_acc={test_metrics['dir_acc']:.4f}")
 
     save_config(cfg, os.path.join(args.out, "lstm_config.json"),
                 {"epochs": args.epochs, "seed": args.seed,

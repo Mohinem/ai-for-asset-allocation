@@ -5,6 +5,7 @@ from typing import Dict, Tuple
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
+import math
 
 def set_seed(seed: int = 42):
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
@@ -53,11 +54,9 @@ def evaluate(model, loader, device, eps: float = 1e-500):
         mae += torch.mean(torch.abs(diff)).item() * X.size(0)
 
         # Directional accuracy with epsilon margin
-        # mask = both true and pred have meaningful magnitude
         mask = (y.abs() > eps) & (yhat.abs() > eps)         # (B, A)
         hits = ((yhat * y) > 0) & mask                      # (B, A)
 
-        # accumulate over the whole batch
         covered += mask.float().sum().item()
         correct += hits.float().sum().item()
         n += X.size(0)
@@ -65,16 +64,24 @@ def evaluate(model, loader, device, eps: float = 1e-500):
     # averaged regression metrics
     reg_mse = mse / n
     reg_mae = mae / n
+    reg_rmse = math.sqrt(reg_mse)
 
     # directional stats
     if covered > 0:
-        dir_acc = correct / covered                         # conditional on coverage
+        dir_acc = correct / covered
         coverage = covered / (len(loader.dataset) * loader.dataset.tensors[1].shape[1])
     else:
         dir_acc = 0.0
         coverage = 0.0
 
-    return {"mse": reg_mse, "mae": reg_mae, "dir_acc": dir_acc, "coverage": coverage}
+    return {
+        "mse": reg_mse,
+        "rmse": reg_rmse,
+        "mae": reg_mae,
+        "dir_acc": dir_acc,
+        "coverage": coverage
+    }
+
 
 def save_checkpoint(model, path: str):
     os.makedirs(os.path.dirname(path), exist_ok=True)

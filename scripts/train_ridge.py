@@ -6,6 +6,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 from data.windows import load_windows
 from models.baselines import RidgeBaseline
 from scripts.utils import set_seed
+import math
 
 def directional_accuracy(yhat: np.ndarray, y: np.ndarray) -> float:
     return np.mean((np.sign(yhat) == np.sign(y)).mean(axis=1))
@@ -20,19 +21,20 @@ if __name__ == "__main__":
     args = p.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
-    set_seed(42)
+    set_seed(67)
 
     Xtr, ytr, Xva, yva, Xte, yte = load_windows(seq_len=60, features=args.features.split(","), processed_dir=args.processed_dir)
 
-    model = RidgeBaseline(alpha=args.alpha, mode=args.mode).fit(
-        np.concatenate([Xtr, Xva], axis=0),  # train on full training period incl. val (no early stopping here)
+    model = RidgeBaseline(alpha=args.alpha).fit(
+        np.concatenate([Xtr, Xva], axis=0),
         np.concatenate([ytr, yva], axis=0),
     )
     yhat = model.predict(Xte)
 
     mse = mean_squared_error(yte, yhat)
+    rmse = math.sqrt(mse)
     mae = mean_absolute_error(yte, yhat)
     dacc = directional_accuracy(yhat, yte)
-    print(f"[Ridge TEST] mse={mse:.6f} | mae={mae:.6f} | dir_acc={dacc:.4f}")
+    print(f"[Ridge TEST] rmse={rmse:.6f} | mse={mse:.6f} | mae={mae:.6f} | dir_acc={dacc:.4f}")
 
     joblib.dump(model, os.path.join(args.out, "ridge.joblib"))

@@ -17,7 +17,7 @@ class LSTM(nn.Module):
     Multi-output LSTM model for next-day return prediction.
     Paper hyperparameters:
       - 2 LSTM layers (50 units), dropout=0.2
-      - Linear head -> output_dim (n_assets)
+      - Linear/MLP head -> output_dim (n_assets)
       - Loss: multi-output MSE
     Input:  (B, T=60, F=input_dim)
     Output: (B, output_dim)
@@ -25,6 +25,9 @@ class LSTM(nn.Module):
     def __init__(self, cfg: LSTMConfig):
         super().__init__()
         self.cfg = cfg
+        # Input stabilization
+        self.in_norm = nn.LayerNorm(cfg.input_dim)
+
         self.lstm = nn.LSTM(
             input_size=cfg.input_dim,
             hidden_size=cfg.hidden_size,
@@ -33,14 +36,27 @@ class LSTM(nn.Module):
             bidirectional=cfg.bidirectional,
             batch_first=True,
         )
-        head_in = cfg.hidden_size * (2 if cfg.bidirectional else 1)
-        self.head = nn.Linear(head_in, cfg.output_dim)
 
-        nn.init.xavier_uniform_(self.head.weight)
-        nn.init.zeros_(self.head.bias)
+        head_in = cfg.hidden_size * (2 if cfg.bidirectional else 1)
+        # Slightly stronger head (helps without changing LSTM capacity)
+        self.head = nn.Sequential(
+            nn.Linear(head_in, head_in),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(head_in, cfg.output_dim),
+        )
+
+        for m in self.head:
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                nn.init.zeros_(m.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        out, (h_n, c_n) = self.lstm(x)
-        last = h_n[-1]                  # (B, H) from last layer
-        y = self.head(last)             # (B, output_dim)
+        # Stabilize
+        x = self.in_norm(x)
+        # Run LSTM
+        out, _ = self.lstm(x)         # (B, T, H)
+        # Mean-pool across time (empirically better than last-only for noisy returns)
+        pooled = out.mean(dim=1)      # (B, H)
+        y = self.head(pooled)         # (B, output_dim)
         return y
